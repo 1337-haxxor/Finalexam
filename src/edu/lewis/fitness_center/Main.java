@@ -1,53 +1,79 @@
 package edu.lewis.fitness_center;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Scanner;
 
+/**
+ * Console front-end that delegates work to the object-oriented domain layer.
+ */
 public class Main {
 
-	// "Global" data structures ---------------------------------------------
+    private static final Scanner SCANNER = new Scanner(System.in);
+    private static final double BASE_CLASS_FEE = 10.0;
+    private static final FitnessCenterManager MANAGER = new FitnessCenterManager(
+            new MemberRegistry(),
+            new ClassCatalog(),
+            new TrainerDirectory(),
+            new BillingService(BASE_CLASS_FEE));
 
-    static List<Map<String, Object>> members = new ArrayList<>();
-    // member: { id (Integer), name (String), membership_type (String), active (Boolean), balance (Double) }
+    public static void main(String[] args) {
+        Main app = new Main();
+        app.mainMenu();
+    }
 
-    static List<Map<String, Object>> fitnessClasses = new ArrayList<>();
-    // class: { id (Integer), name (String), difficulty (String), capacity (Integer), enrolled_ids (List<Integer>) }
+    // ---------------------------------------------------------------------
+    // Utility helpers
+    // ---------------------------------------------------------------------
 
-    static List<Map<String, Object>> trainers = new ArrayList<>();
-    // trainer: { id (Integer), name (String), specialty (String), schedule (List<String>) }
+    private void pause() {
+        System.out.print("\nPress Enter to continue...");
+        SCANNER.nextLine();
+    }
 
-    static int nextMemberId = 1;
-    static int nextClassId = 1;
-    static int nextTrainerId = 1;
-
-    static Scanner scanner = new Scanner(System.in);
-
-    // Utility functions -----------------------------------------------------
-
-    public static int readInt(String prompt, Integer minValue, Integer maxValue) {
+    private int readInt(String prompt, Integer min, Integer max) {
         while (true) {
             System.out.print(prompt);
-            String line = scanner.nextLine().trim();
+            String value = SCANNER.nextLine().trim();
             try {
-                int value = Integer.parseInt(line);
-                if (minValue != null && value < minValue) {
-                    System.out.println("Please enter a value >= " + minValue);
+                int parsed = Integer.parseInt(value);
+                if (min != null && parsed < min) {
+                    System.out.println("Please enter a value >= " + min);
                     continue;
                 }
-                if (maxValue != null && value > maxValue) {
-                    System.out.println("Please enter a value <= " + maxValue);
+                if (max != null && parsed > max) {
+                    System.out.println("Please enter a value <= " + max);
                     continue;
                 }
-                return value;
+                return parsed;
             } catch (NumberFormatException e) {
                 System.out.println("Please enter a valid integer.");
             }
         }
     }
 
-    public static String readNonempty(String prompt) {
+    private double readDouble(String prompt, double minValue) {
         while (true) {
             System.out.print(prompt);
-            String value = scanner.nextLine().trim();
+            String value = SCANNER.nextLine().trim();
+            try {
+                double parsed = Double.parseDouble(value);
+                if (parsed < minValue) {
+                    System.out.println("Please enter a value >= " + minValue);
+                    continue;
+                }
+                return parsed;
+            } catch (NumberFormatException e) {
+                System.out.println("Please enter a valid number.");
+            }
+        }
+    }
+
+    private String readNonEmpty(String prompt) {
+        while (true) {
+            System.out.print(prompt);
+            String value = SCANNER.nextLine().trim();
             if (!value.isEmpty()) {
                 return value;
             }
@@ -55,519 +81,361 @@ public class Main {
         }
     }
 
-    public static void pause() {
-        System.out.print("\nPress Enter to continue...");
-        scanner.nextLine();
-    }
-
-    // Member-related functions ----------------------------------------------
-
-    public static void addMember() {
-        System.out.println("\n=== Add New Member ===");
-        String name = readNonempty("Name: ");
+    private MembershipPlan readMembershipPlan() {
         System.out.println("Membership types: student, faculty, community");
         System.out.print("Membership type: ");
-        String membershipType = scanner.nextLine().trim().toLowerCase();
-        if (!membershipType.equals("student") &&
-            !membershipType.equals("faculty") &&
-            !membershipType.equals("community")) {
-            System.out.println("Unknown membership type. Defaulting to 'community'.");
-            membershipType = "community";
-        }
-
-        Map<String, Object> member = new HashMap<>();
-        member.put("id", nextMemberId);
-        member.put("name", name);
-        member.put("membership_type", membershipType);
-        member.put("active", true);
-        member.put("balance", 0.0);
-
-        members.add(member);
-        System.out.println("Member added with id " + nextMemberId);
-        nextMemberId++;
+        return MembershipPlanFactory.fromInput(SCANNER.nextLine());
     }
 
-    public static void listMembers(boolean showDetails) {
+    // ---------------------------------------------------------------------
+    // Member flows
+    // ---------------------------------------------------------------------
+
+    private void addMember() {
+        System.out.println("\n=== Add New Member ===");
+        String name = readNonEmpty("Name: ");
+        MembershipPlan plan = readMembershipPlan();
+        Member member = MANAGER.addMember(name, plan);
+        System.out.println("Member created: " + member);
+    }
+
+    private void listMembers(boolean showDetails) {
         System.out.println("\n=== Members ===");
-        if (members.isEmpty()) {
+        if (MANAGER.listMembers().isEmpty()) {
             System.out.println("No members found.");
+            return;
         }
-        for (Map<String, Object> m : members) {
-            int id = (Integer) m.get("id");
-            String name = (String) m.get("name");
+        for (Member member : MANAGER.listMembers()) {
             if (showDetails) {
-                String membershipType = (String) m.get("membership_type");
-                boolean active = (Boolean) m.get("active");
-                double balance = (Double) m.get("balance");
-                String status = active ? "Active" : "Inactive";
-                System.out.printf("[%d] %s (%s, %s) Balance: $%.2f%n",
-                        id, name, membershipType, status, balance);
+                System.out.printf("[%d] %s%n", member.getId(), member);
             } else {
-                System.out.printf("[%d] %s%n", id, name);
+                System.out.printf("[%d] %s%n", member.getId(), member.getName());
             }
         }
-        System.out.println();
     }
 
-    public static Map<String, Object> findMemberById(int memberId) {
-        for (Map<String, Object> m : members) {
-            int id = (Integer) m.get("id");
-            if (id == memberId) {
-                return m;
-            }
+    private Optional<Member> promptForMember() {
+        listMembers(false);
+        if (MANAGER.listMembers().isEmpty()) {
+            return Optional.empty();
         }
-        return null;
+        int id = readInt("Enter member id: ", 1, null);
+        Optional<Member> member = MANAGER.findMember(id);
+        if (member.isEmpty()) {
+            System.out.println("Member not found.");
+        }
+        return member;
     }
 
-    public static void deactivateMember() {
+    private void deactivateMember() {
         System.out.println("\n=== Deactivate Member ===");
-        listMembers(false);
-        int mid = readInt("Enter member id to deactivate: ", null, null);
-        Map<String, Object> member = findMemberById(mid);
-        if (member == null) {
-            System.out.println("Member not found.");
-            return;
-        }
-        boolean active = (Boolean) member.get("active");
-        if (!active) {
-            System.out.println("Member is already inactive.");
-            return;
-        }
-        member.put("active", false);
-        System.out.println("Member " + member.get("name") + " is now inactive.");
+        Optional<Member> member = promptForMember();
+        member.ifPresent(m -> {
+            if (!m.isActive()) {
+                System.out.println("Member already inactive.");
+                return;
+            }
+            MANAGER.deactivateMember(m);
+            System.out.println(m.getName() + " is now inactive.");
+        });
     }
 
-    public static void addChargeToMember() {
-        System.out.println("\n=== Add Charge to Member ===");
-        listMembers(false);
-        int mid = readInt("Enter member id to charge: ", null, null);
-        Map<String, Object> member = findMemberById(mid);
-        if (member == null) {
-            System.out.println("Member not found.");
-            return;
-        }
-        System.out.print("Charge amount: $");
-        String line = scanner.nextLine().trim();
-        double amount;
-        try {
-            amount = Double.parseDouble(line);
-        } catch (NumberFormatException e) {
-            System.out.println("Invalid amount.");
-            return;
-        }
-        double balance = (Double) member.get("balance");
-        balance += amount;
-        member.put("balance", balance);
-        System.out.printf("Added $%.2f to %s's balance.%n", amount, member.get("name"));
+    private void addChargeToMember() {
+        System.out.println("\n=== Add Charge ===");
+        Optional<Member> member = promptForMember();
+        member.ifPresent(m -> {
+            double amount = readDouble("Charge amount: $", 0.01);
+            MANAGER.chargeMember(m, amount);
+            System.out.printf("Recorded $%.2f charge for %s.%n", amount, m.getName());
+        });
     }
 
-    public static void applyPaymentFromMember() {
+    private void applyPaymentFromMember() {
         System.out.println("\n=== Record Payment ===");
-        listMembers(false);
-        int mid = readInt("Enter member id: ", null, null);
-        Map<String, Object> member = findMemberById(mid);
-        if (member == null) {
-            System.out.println("Member not found.");
-            return;
-        }
-        System.out.print("Payment amount: $");
-        String line = scanner.nextLine().trim();
-        double amount;
-        try {
-            amount = Double.parseDouble(line);
-        } catch (NumberFormatException e) {
-            System.out.println("Invalid amount.");
-            return;
-        }
-        double balance = (Double) member.get("balance");
-        balance -= amount;
-        member.put("balance", balance);
-        System.out.printf("Recorded payment of $%.2f from %s.%n", amount, member.get("name"));
+        Optional<Member> member = promptForMember();
+        member.ifPresent(m -> {
+            double amount = readDouble("Payment amount: $", 0.01);
+            MANAGER.recordPayment(m, amount);
+            System.out.printf("Recorded $%.2f payment from %s.%n", amount, m.getName());
+        });
     }
 
-    // Class-related functions -----------------------------------------------
+    // ---------------------------------------------------------------------
+    // Class flows
+    // ---------------------------------------------------------------------
 
-    public static void createClass() {
+    private void createClass() {
         System.out.println("\n=== Create Fitness Class ===");
-        String name = readNonempty("Class name: ");
+        String name = readNonEmpty("Class name: ");
         System.out.print("Difficulty (beginner/intermediate/advanced): ");
-        String difficulty = scanner.nextLine().trim().toLowerCase();
-        if (!difficulty.equals("beginner") &&
-            !difficulty.equals("intermediate") &&
-            !difficulty.equals("advanced")) {
-            System.out.println("Unknown difficulty. Defaulting to 'beginner'.");
-            difficulty = "beginner";
-        }
+        DifficultyLevel difficulty = DifficultyLevel.fromInput(SCANNER.nextLine());
         int capacity = readInt("Capacity: ", 1, null);
-
-        Map<String, Object> fitnessClass = new HashMap<>();
-        fitnessClass.put("id", nextClassId);
-        fitnessClass.put("name", name);
-        fitnessClass.put("difficulty", difficulty);
-        fitnessClass.put("capacity", capacity);
-        fitnessClass.put("enrolled_ids", new ArrayList<Integer>());
-
-        fitnessClasses.add(fitnessClass);
-        System.out.println("Fitness class created with id " + nextClassId);
-        nextClassId++;
+        FitnessClass fitnessClass = MANAGER.createClass(name, difficulty, capacity);
+        System.out.println("Created class: " + fitnessClass.getName() + " (#" + fitnessClass.getId() + ")");
     }
 
-    public static void listClasses(boolean showEnrollment) {
+    private void listClasses(boolean showDetails) {
         System.out.println("\n=== Fitness Classes ===");
-        if (fitnessClasses.isEmpty()) {
+        if (MANAGER.listClasses().isEmpty()) {
             System.out.println("No classes found.");
+            return;
         }
-        for (Map<String, Object> c : fitnessClasses) {
-            int id = (Integer) c.get("id");
-            String name = (String) c.get("name");
-            if (showEnrollment) {
-                String difficulty = (String) c.get("difficulty");
-                int capacity = (Integer) c.get("capacity");
-                @SuppressWarnings("unchecked")
-                List<Integer> enrolledIds = (List<Integer>) c.get("enrolled_ids");
-                System.out.printf("[%d] %s (%s, capacity %d, enrolled %d)%n",
-                        id, name, difficulty, capacity, enrolledIds.size());
+        for (FitnessClass fitnessClass : MANAGER.listClasses()) {
+            if (showDetails) {
+                System.out.printf("[%d] %s (%s) capacity %d, enrolled %d%n",
+                        fitnessClass.getId(),
+                        fitnessClass.getName(),
+                        fitnessClass.getDifficultyLevel(),
+                        fitnessClass.getCapacity(),
+                        fitnessClass.getEnrolledMemberIds().size());
             } else {
-                System.out.printf("[%d] %s%n", id, name);
+                System.out.printf("[%d] %s%n", fitnessClass.getId(), fitnessClass.getName());
             }
         }
-        System.out.println();
     }
 
-    public static Map<String, Object> findClassById(int classId) {
-        for (Map<String, Object> c : fitnessClasses) {
-            int id = (Integer) c.get("id");
-            if (id == classId) {
-                return c;
-            }
+    private Optional<FitnessClass> promptForClass() {
+        listClasses(false);
+        if (MANAGER.listClasses().isEmpty()) {
+            return Optional.empty();
         }
-        return null;
+        int id = readInt("Enter class id: ", 1, null);
+        Optional<FitnessClass> target = MANAGER.findClass(id);
+        if (target.isEmpty()) {
+            System.out.println("Class not found.");
+        }
+        return target;
     }
 
-    public static void enrollMemberInClass() {
+    private void enrollMemberInClass() {
         System.out.println("\n=== Enroll Member in Class ===");
-        listMembers(false);
-        int mid = readInt("Enter member id: ", null, null);
-        Map<String, Object> member = findMemberById(mid);
-        if (member == null) {
-            System.out.println("Member not found.");
+        Optional<Member> member = promptForMember();
+        if (member.isEmpty()) {
             return;
         }
-        boolean active = (Boolean) member.get("active");
-        if (!active) {
-            System.out.println("Cannot enroll an inactive member.");
+        Optional<FitnessClass> fitnessClass = promptForClass();
+        if (fitnessClass.isEmpty()) {
             return;
         }
 
-        listClasses(false);
-        int cid = readInt("Enter class id: ", null, null);
-        Map<String, Object> fclass = findClassById(cid);
-        if (fclass == null) {
-            System.out.println("Class not found.");
-            return;
+        try {
+            double amount = MANAGER.enrollMemberInClass(member.get(), fitnessClass.get());
+            System.out.printf("Enrolled %s and charged $%.2f%n", member.get().getName(), amount);
+        } catch (IllegalStateException e) {
+            System.out.println("Enrollment failed: " + e.getMessage());
         }
-
-        int capacity = (Integer) fclass.get("capacity");
-        @SuppressWarnings("unchecked")
-        List<Integer> enrolledIds = (List<Integer>) fclass.get("enrolled_ids");
-
-        if (enrolledIds.size() >= capacity) {
-            System.out.println("Class is full.");
-            return;
-        }
-
-        if (enrolledIds.contains(mid)) {
-            System.out.println("Member is already enrolled in this class.");
-            return;
-        }
-
-        enrolledIds.add(mid);
-        System.out.println("Enrolled " + member.get("name") + " in " + fclass.get("name") + ".");
-
-        // Add charge with manual discount rules
-        double baseFee = 10.0;
-        String membershipType = (String) member.get("membership_type");
-        double discountedFee;
-        if (membershipType.equals("student")) {
-            discountedFee = baseFee * 0.5;
-        } else if (membershipType.equals("faculty")) {
-            discountedFee = baseFee * 0.75;
-        } else {
-            discountedFee = baseFee;
-        }
-
-        double balance = (Double) member.get("balance");
-        balance += discountedFee;
-        member.put("balance", balance);
-
-        System.out.printf(
-                "Charged $%.2f for class (base $%.2f, type: %s).%n",
-                discountedFee, baseFee, membershipType
-        );
     }
 
-    public static void listClassRoster() {
+    private void listClassRoster() {
         System.out.println("\n=== Class Roster ===");
-        listClasses(false);
-        int cid = readInt("Enter class id: ", null, null);
-        Map<String, Object> fclass = findClassById(cid);
-        if (fclass == null) {
-            System.out.println("Class not found.");
+        Optional<FitnessClass> fitnessClass = promptForClass();
+        if (fitnessClass.isEmpty()) {
             return;
         }
-
-        System.out.println("\nRoster for " + fclass.get("name") + ":");
-        @SuppressWarnings("unchecked")
-        List<Integer> enrolledIds = (List<Integer>) fclass.get("enrolled_ids");
-        if (enrolledIds.isEmpty()) {
+        List<Integer> roster = fitnessClass.get().getEnrolledMemberIds();
+        if (roster.isEmpty()) {
             System.out.println("No members enrolled.");
             return;
         }
+        System.out.println("Roster for " + fitnessClass.get().getName() + ":");
+        for (Integer memberId : roster) {
+            Optional<Member> member = MANAGER.findMember(memberId);
+            member.ifPresent(
+                    m -> System.out.println("- " + m.getName() + " (" + m.getMembershipPlan().getName() + ")"));
+        }
+    }
 
-        for (int mid : enrolledIds) {
-            Map<String, Object> m = findMemberById(mid);
-            if (m != null) {
-                System.out.println("- " + m.get("name") + " (" + m.get("membership_type") + ")");
+    // ---------------------------------------------------------------------
+    // Trainer flows
+    // ---------------------------------------------------------------------
+
+    private void addTrainer() {
+        System.out.println("\n=== Add Trainer ===");
+        String name = readNonEmpty("Trainer name: ");
+        String specialty = readNonEmpty("Specialty: ");
+        List<String> schedule = readSchedule();
+        Trainer trainer = MANAGER.addTrainer(name, specialty, schedule);
+        System.out.println("Trainer created: " + trainer.getName() + " (#" + trainer.getId() + ")");
+    }
+
+    private void listTrainers(boolean showSchedule) {
+        System.out.println("\n=== Trainers ===");
+        if (MANAGER.listTrainers().isEmpty()) {
+            System.out.println("No trainers found.");
+            return;
+        }
+        for (Trainer trainer : MANAGER.listTrainers()) {
+            if (showSchedule) {
+                String schedule = trainer.getSchedule().isEmpty()
+                        ? "No availability"
+                        : String.join(", ", trainer.getSchedule());
+                System.out.printf("[%d] %s - %s | %s%n",
+                        trainer.getId(), trainer.getName(), trainer.getSpecialty(), schedule);
+            } else {
+                System.out.printf("[%d] %s%n", trainer.getId(), trainer.getName());
             }
         }
     }
 
-    // Trainer-related functions ---------------------------------------------
+    private Optional<Trainer> promptForTrainer() {
+        listTrainers(false);
+        if (MANAGER.listTrainers().isEmpty()) {
+            return Optional.empty();
+        }
+        int id = readInt("Enter trainer id: ", 1, null);
+        Optional<Trainer> trainer = MANAGER.findTrainer(id);
+        if (trainer.isEmpty()) {
+            System.out.println("Trainer not found.");
+        }
+        return trainer;
+    }
 
-    public static void addTrainer() {
-        System.out.println("\n=== Add Trainer ===");
-        String name = readNonempty("Trainer name: ");
-        String specialty = readNonempty("Specialty (e.g., yoga, strength, cardio): ");
+    private List<String> readSchedule() {
         List<String> schedule = new ArrayList<>();
-
-        System.out.println("Enter trainer availability (e.g., Mon 9-11). Leave blank to stop.");
+        System.out.println("Enter availability (blank line to stop). Examples: Mon 9-11");
         while (true) {
             System.out.print("Availability: ");
-            String slot = scanner.nextLine().trim();
+            String slot = SCANNER.nextLine().trim();
             if (slot.isEmpty()) {
                 break;
             }
             schedule.add(slot);
         }
-
-        Map<String, Object> trainer = new HashMap<>();
-        trainer.put("id", nextTrainerId);
-        trainer.put("name", name);
-        trainer.put("specialty", specialty);
-        trainer.put("schedule", schedule);
-
-        trainers.add(trainer);
-        System.out.println("Trainer added with id " + nextTrainerId);
-        nextTrainerId++;
+        return schedule;
     }
 
-    public static void listTrainers(boolean showSchedule) {
-        System.out.println("\n=== Trainers ===");
-        if (trainers.isEmpty()) {
-            System.out.println("No trainers found.");
-        }
-        for (Map<String, Object> t : trainers) {
-            int id = (Integer) t.get("id");
-            String name = (String) t.get("name");
-            String specialty = (String) t.get("specialty");
-            if (showSchedule) {
-                @SuppressWarnings("unchecked")
-                List<String> schedule = (List<String>) t.get("schedule");
-                String scheduleStr = (schedule == null || schedule.isEmpty())
-                        ? "No availability"
-                        : String.join(", ", schedule);
-                System.out.printf("[%d] %s - %s (Schedule: %s)%n",
-                        id, name, specialty, scheduleStr);
-            } else {
-                System.out.printf("[%d] %s%n", id, name);
-            }
-        }
-        System.out.println();
-    }
-
-    public static Map<String, Object> findTrainerById(int trainerId) {
-        for (Map<String, Object> t : trainers) {
-            int id = (Integer) t.get("id");
-            if (id == trainerId) {
-                return t;
-            }
-        }
-        return null;
-    }
-
-    public static void updateTrainerSchedule() {
+    private void updateTrainerSchedule() {
         System.out.println("\n=== Update Trainer Schedule ===");
-        listTrainers(false);
-        int tid = readInt("Enter trainer id: ", null, null);
-        Map<String, Object> trainer = findTrainerById(tid);
-        if (trainer == null) {
-            System.out.println("Trainer not found.");
-            return;
-        }
-
-        @SuppressWarnings("unchecked")
-        List<String> schedule = (List<String>) trainer.get("schedule");
-        if (schedule == null) {
-            schedule = new ArrayList<>();
-            trainer.put("schedule", schedule);
-        }
-
-        System.out.println("Current schedule:");
-        for (String s : schedule) {
-            System.out.println("- " + s);
-        }
-
-        System.out.println("1. Replace schedule");
-        System.out.println("2. Add to schedule");
-        int choice = readInt("Choice: ", 1, 2);
-
-        if (choice == 1) {
-            schedule.clear();
-            System.out.println("Enter new availability (blank to finish):");
-            while (true) {
-                System.out.print("Availability: ");
-                String slot = scanner.nextLine().trim();
-                if (slot.isEmpty()) {
-                    break;
-                }
-                schedule.add(slot);
+        Optional<Trainer> trainerOpt = promptForTrainer();
+        trainerOpt.ifPresent(trainer -> {
+            System.out.println("Current schedule: " + (trainer.getSchedule().isEmpty()
+                    ? "No availability"
+                    : String.join(", ", trainer.getSchedule())));
+            System.out.println("1. Replace schedule");
+            System.out.println("2. Add to schedule");
+            int choice = readInt("Choice: ", 1, 2);
+            if (choice == 1) {
+                trainer.replaceSchedule(readSchedule());
+            } else {
+                List<String> additions = readSchedule();
+                additions.forEach(trainer::addSlot);
             }
-        } else {
-            System.out.println("Enter additional availability (blank to finish):");
-            while (true) {
-                System.out.print("Availability: ");
-                String slot = scanner.nextLine().trim();
-                if (slot.isEmpty()) {
-                    break;
-                }
-                schedule.add(slot);
-            }
-        }
-
-        System.out.println("Updated schedule:");
-        for (String s : schedule) {
-            System.out.println("- " + s);
-        }
+            System.out.println("Updated schedule: " + (trainer.getSchedule().isEmpty()
+                    ? "No availability"
+                    : String.join(", ", trainer.getSchedule())));
+        });
     }
 
-    // Reporting / summaries -------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Reporting
+    // ---------------------------------------------------------------------
 
-    public static void showSummaryReport() {
+    private void showSummaryReport() {
         System.out.println("\n=== Summary Report ===");
-        int totalMembers = members.size();
-        int activeMembers = 0;
-        double totalBalance = 0.0;
-
-        for (Map<String, Object> m : members) {
-            if ((Boolean) m.get("active")) {
-                activeMembers++;
-            }
-            totalBalance += (Double) m.get("balance");
-        }
-
+        int totalMembers = MANAGER.listMembers().size();
+        long activeMembers = MANAGER.listMembers().stream().filter(Member::isActive).count();
+        double totalBalance = MANAGER.listMembers().stream().mapToDouble(Member::getBalance).sum();
         System.out.println("Total members: " + totalMembers);
         System.out.println("Active members: " + activeMembers);
         System.out.printf("Total outstanding balance: $%.2f%n", totalBalance);
 
         System.out.println("\nClasses:");
-        for (Map<String, Object> c : fitnessClasses) {
-            String name = (String) c.get("name");
-            String difficulty = (String) c.get("difficulty");
-            int capacity = (Integer) c.get("capacity");
-            @SuppressWarnings("unchecked")
-            List<Integer> enrolledIds = (List<Integer>) c.get("enrolled_ids");
-            System.out.printf("- %s (%s): %d/%d enrolled%n",
-                    name, difficulty, enrolledIds.size(), capacity);
+        if (MANAGER.listClasses().isEmpty()) {
+            System.out.println("- none -");
+        } else {
+            for (FitnessClass fitnessClass : MANAGER.listClasses()) {
+                System.out.printf("- %s (%s) %d/%d enrolled%n",
+                        fitnessClass.getName(),
+                        fitnessClass.getDifficultyLevel(),
+                        fitnessClass.getEnrolledMemberIds().size(),
+                        fitnessClass.getCapacity());
+            }
         }
 
         System.out.println("\nTrainers:");
-        for (Map<String, Object> t : trainers) {
-            System.out.printf("- %s (%s)%n", t.get("name"), t.get("specialty"));
+        if (MANAGER.listTrainers().isEmpty()) {
+            System.out.println("- none -");
+        } else {
+            for (Trainer trainer : MANAGER.listTrainers()) {
+                System.out.printf("- %s (%s)%n", trainer.getName(), trainer.getSpecialty());
+            }
         }
-        System.out.println();
     }
 
-    // Menus -----------------------------------------------------------------
+    // ---------------------------------------------------------------------
+    // Menus
+    // ---------------------------------------------------------------------
 
-    public static void memberMenu() {
+    private void memberMenu() {
         while (true) {
             System.out.println("\n=== Member Menu ===");
             System.out.println("1. Add member");
             System.out.println("2. List members");
             System.out.println("3. Deactivate member");
             System.out.println("4. Add charge to member");
-            System.out.println("5. Record payment from member");
+            System.out.println("5. Record payment");
             System.out.println("6. Back to main menu");
             int choice = readInt("Choice: ", 1, 6);
-
-            if (choice == 1) {
-                addMember();
-            } else if (choice == 2) {
-                listMembers(true);
-            } else if (choice == 3) {
-                deactivateMember();
-            } else if (choice == 4) {
-                addChargeToMember();
-            } else if (choice == 5) {
-                applyPaymentFromMember();
-            } else if (choice == 6) {
-                break;
+            switch (choice) {
+                case 1 -> addMember();
+                case 2 -> listMembers(true);
+                case 3 -> deactivateMember();
+                case 4 -> addChargeToMember();
+                case 5 -> applyPaymentFromMember();
+                case 6 -> {
+                    return;
+                }
+                default -> throw new IllegalStateException("Unexpected value: " + choice);
             }
-
             pause();
         }
     }
 
-    public static void classesMenu() {
+    private void classesMenu() {
         while (true) {
             System.out.println("\n=== Classes Menu ===");
-            System.out.println("1. Create fitness class");
-            System.out.println("2. List fitness classes");
-            System.out.println("3. Enroll member in class");
+            System.out.println("1. Create class");
+            System.out.println("2. List classes");
+            System.out.println("3. Enroll member");
             System.out.println("4. Show class roster");
             System.out.println("5. Back to main menu");
             int choice = readInt("Choice: ", 1, 5);
-
-            if (choice == 1) {
-                createClass();
-            } else if (choice == 2) {
-                listClasses(true);
-            } else if (choice == 3) {
-                enrollMemberInClass();
-            } else if (choice == 4) {
-                listClassRoster();
-            } else if (choice == 5) {
-                break;
+            switch (choice) {
+                case 1 -> createClass();
+                case 2 -> listClasses(true);
+                case 3 -> enrollMemberInClass();
+                case 4 -> listClassRoster();
+                case 5 -> {
+                    return;
+                }
+                default -> throw new IllegalStateException("Unexpected value: " + choice);
             }
-
             pause();
         }
     }
 
-    public static void trainerMenu() {
+    private void trainerMenu() {
         while (true) {
             System.out.println("\n=== Trainer Menu ===");
             System.out.println("1. Add trainer");
             System.out.println("2. List trainers");
-            System.out.println("3. Update trainer schedule");
+            System.out.println("3. Update schedule");
             System.out.println("4. Back to main menu");
             int choice = readInt("Choice: ", 1, 4);
-
-            if (choice == 1) {
-                addTrainer();
-            } else if (choice == 2) {
-                listTrainers(true);
-            } else if (choice == 3) {
-                updateTrainerSchedule();
-            } else if (choice == 4) {
-                break;
+            switch (choice) {
+                case 1 -> addTrainer();
+                case 2 -> listTrainers(true);
+                case 3 -> updateTrainerSchedule();
+                case 4 -> {
+                    return;
+                }
+                default -> throw new IllegalStateException("Unexpected value: " + choice);
             }
-
             pause();
         }
     }
 
-    public static void mainMenu() {
+    private void mainMenu() {
         while (true) {
             System.out.println("\n=== Campus Fitness Center Management ===");
             System.out.println("1. Manage members");
@@ -576,25 +444,20 @@ public class Main {
             System.out.println("4. Show summary report");
             System.out.println("5. Exit");
             int choice = readInt("Choice: ", 1, 5);
-
-            if (choice == 1) {
-                memberMenu();
-            } else if (choice == 2) {
-                classesMenu();
-            } else if (choice == 3) {
-                trainerMenu();
-            } else if (choice == 4) {
-                showSummaryReport();
-                pause();
-            } else if (choice == 5) {
-                System.out.println("Goodbye!");
-                System.exit(0);
+            switch (choice) {
+                case 1 -> memberMenu();
+                case 2 -> classesMenu();
+                case 3 -> trainerMenu();
+                case 4 -> {
+                    showSummaryReport();
+                    pause();
+                }
+                case 5 -> {
+                    System.out.println("Goodbye!");
+                    return;
+                }
+                default -> throw new IllegalStateException("Unexpected value: " + choice);
             }
         }
     }
-
-    public static void main(String[] args) {
-        mainMenu();
-    }
-
 }
